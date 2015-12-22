@@ -1243,4 +1243,4 @@ $(srcdir)/effective_tld_names.dat:
 	$(curl_verbose)if ! curl -s https://publicsuffix.org/list/public_suffix_list.dat > $@; then rm -f $@; exit 1; fi
 
 pubsuffix.cc: $(srcdir)/effective_tld_names.dat
-	$(AM_V_GEN)./mkpubsuffixcc
+	$(AM_V_GEN)(cd "$(srcdir)"; ./mkpubsuffixcc) > $@
