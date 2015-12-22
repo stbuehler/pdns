@@ -17,6 +17,19 @@ uint64_t uptimeOfProcess(const std::string& str);
 
 struct DynBlock
 {
+  explicit DynBlock() = default;
+  explicit DynBlock(string const& reason_, struct timespec const& until_)
+  : reason(reason_)
+  , until(until_) {
+  }
+
+  DynBlock(const DynBlock& rhs)
+  : reason(rhs.reason)
+  , until(rhs.until)
+  , blocks(rhs.blocks.load())
+  {
+  }
+
   DynBlock& operator=(const DynBlock& rhs)
   {
     reason=rhs.reason;

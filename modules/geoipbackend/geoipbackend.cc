@@ -147,10 +147,10 @@ void GeoIPBackend::initialize() {
             value.push_back(net->second.as<string>());
           }
           if (net->first.as<string>() == "default") {
-            nmt.insert(Netmask("0.0.0.0/0")).second.assign(value.begin(),value.end());
-            nmt.insert(Netmask("::/0")).second.swap(value);
+            nmt.insert(Netmask("0.0.0.0/0"))->value().assign(value.begin(),value.end());
+            nmt.insert(Netmask("::/0"))->value().swap(value);
           } else {
-            nmt.insert(Netmask(net->first.as<string>())).second.swap(value);
+            nmt.insert(Netmask(net->first.as<string>()))->value().swap(value);
           }
         }
       } else {
@@ -160,8 +160,8 @@ void GeoIPBackend::initialize() {
         } else {
           value.push_back(service->second.as<string>());
         }
-        nmt.insert(Netmask("0.0.0.0/0")).second.assign(value.begin(),value.end());
-        nmt.insert(Netmask("::/0")).second.swap(value);
+        nmt.insert(Netmask("0.0.0.0/0"))->value().assign(value.begin(),value.end());
+        nmt.insert(Netmask("::/0"))->value().swap(value);
       }
       dom.services[DNSName(service->first.as<string>())].swap(nmt);
     }
@@ -278,14 +278,14 @@ void GeoIPBackend::lookup(const QType &qtype, const DNSName& qdomain, DNSPacket 
   auto target = dom.services.find(search);
   if (target == dom.services.end()) return; // no hit
 
-  const NetmaskTree<vector<string> >::node_type* node = target->second.lookup(ComboAddress(ip));
-  if (node == NULL) return; // no hit, again.
+  auto node = target->second.lookup(ComboAddress(ip));
+  if (!node) return; // no hit, again.
 
   string format;
-  gl.netmask = node->first.getBits();
+  gl.netmask = node->key().getBits();
 
   // note that this means the array format won't work with indirect
-  for(auto it = node->second.begin(); it != node->second.end(); it++) {
+  for(auto it = node->value().begin(); it != node->value().end(); it++) {
     format = format2str(*it, ip, v6, &gl);
 
     // see if the record can be found

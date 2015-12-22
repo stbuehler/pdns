@@ -108,10 +108,10 @@ static void connectionThread(int sock, ComboAddress remote, string password)
       struct timespec now;
       clock_gettime(CLOCK_MONOTONIC, &now);
       for(const auto& e: slow) {
-	if(now < e->second.until ) {
-	  Json::object thing{{"reason", e->second.reason}, {"seconds", (double)(e->second.until.tv_sec - now.tv_sec)},
-							     {"blocks", (double)e->second.blocks} };
-	  obj.insert({e->first.toString(), thing});
+	if(now < e.value().until ) {
+	  Json::object thing{{"reason", e.value().reason}, {"seconds", (double)(e.value().until.tv_sec - now.tv_sec)},
+							     {"blocks", (double)e.value().blocks} };
+	  obj.insert({e.key().toString(), thing});
 	}
       }
       Json my_json=obj;

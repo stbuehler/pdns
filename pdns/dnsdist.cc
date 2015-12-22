@@ -588,10 +588,10 @@ try
       }
 
       if(auto got=localDynBlock->lookup(remote)) {
-	if(now < got->second.until) {
+	if(now < got->value().until) {
 	  vinfolog("Query from %s dropped because of dynamic block", remote.toStringWithPort());
 	  g_stats.dynBlocked++;
-	  got->second.blocks++;
+	  got->value().blocks++;
 	  continue;
 	}
       }

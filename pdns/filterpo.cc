@@ -66,7 +66,7 @@ DNSFilterEngine::Policy DNSFilterEngine::getQueryPolicy(const DNSName& qname, co
     
     if(auto fnd=z.qpolAddr.lookup(ca)) {
       //	cerr<<"Had a hit on the IP address ("<<ca.toString()<<") of the client"<<endl;
-      return fnd->second;
+      return fnd->value();
     }
   }
 
@@ -89,7 +89,7 @@ DNSFilterEngine::Policy DNSFilterEngine::getPostPolicy(const vector<DNSRecord>& 
 
     for(const auto& z : d_zones) {
       if(auto fnd=z.postpolAddr.lookup(ca))
-	return fnd->second;
+	return fnd->value();
     }
   }
   return Policy{PolicyKind::NoAction};
@@ -104,13 +104,13 @@ void DNSFilterEngine::assureZones(int zone)
 void DNSFilterEngine::addClientTrigger(const Netmask& nm, Policy pol, int zone)
 {
   assureZones(zone);
-  d_zones[zone].qpolAddr.insert(nm).second=pol;
+  d_zones[zone].qpolAddr.insert_or_assign(nm, pol);
 }
 
 void DNSFilterEngine::addResponseTrigger(const Netmask& nm, Policy pol, int zone)
 {
   assureZones(zone);
-  d_zones[zone].postpolAddr.insert(nm).second=pol;
+  d_zones[zone].postpolAddr.insert_or_assign(nm, pol);
 }
 
 void DNSFilterEngine::addQNameTrigger(const DNSName& n, Policy pol, int zone)

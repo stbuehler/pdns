@@ -413,8 +413,65 @@ class NetmaskTree {
 public:
   typedef Netmask key_type;
   typedef T value_type;
-  typedef std::pair<key_type,value_type> node_type;
+
+  class node_type {
+  public:
+    explicit node_type(const key_type& key, const value_type& value)
+    : m_key(key), m_value(value) {
+    }
+
+    const key_type& key() const {
+      return m_key;
+    }
+
+    const value_type& value() const {
+      return m_value;
+    }
+
+    value_type& value() {
+      return m_value;
+    }
+
+  private:
+    key_type m_key;
+    value_type m_value;
+  };
+
+  /* iteration is implemented through a vector of `node_type*`; wrap in node_ptr to emulate reference `node_type&` instead */
+  class node_ptr {
+  public:
+    explicit node_ptr(node_type* node)
+    : m_node(node) {
+    }
+
+    const key_type& key() const {
+      return m_node->key();
+    }
+
+    const value_type& value() const {
+      return m_node->value();
+    }
+
+    value_type& value() {
+      return m_node->value();
+    }
+
+    bool operator==(node_ptr other) const {
+      return m_node == other.m_node;
+    }
+
+    bool operator==(node_type const* node) const {
+      return m_node == node;
+    }
+
+  private:
+    node_type* m_node;
+  };
+
   typedef size_t size_type;
+
+  typedef typename std::vector<node_ptr>::const_iterator const_iterator;
+  typedef typename std::vector<node_ptr>::iterator iterator;
 
 private:
   /** Single node in tree, internal use only.
@@ -452,41 +509,12 @@ private:
      int d_bits; //<! How many bits have been used so far
   };
 
-public:
-  NetmaskTree() noexcept {
-  }
-
-  NetmaskTree(const NetmaskTree& rhs) {
-    // it is easier to copy the nodes than tree.
-    // also acts as handy compactor
-    for(auto const& node: rhs._nodes)
-      insert(node->first).second = node->second;
-  }
-
-  NetmaskTree& operator=(const NetmaskTree& rhs) {
-    clear();
-    // see above.
-    for(auto const& node: rhs._nodes)
-      insert(node->first).second = node->second;
-    return *this;
-  }
-
-  const typename std::vector<node_type*>::const_iterator begin() const { return _nodes.begin(); }
-  const typename std::vector<node_type*>::const_iterator end() const { return _nodes.end(); }
-
-  typename std::vector<node_type*>::iterator begin() { return _nodes.begin(); }
-  typename std::vector<node_type*>::iterator end() { return _nodes.end(); }
-
-  node_type& insert(const string &mask) {
-    return insert(key_type(mask));
-  }
-
   //<! Creates new value-pair in tree and returns it.
-  node_type& insert(const key_type& key) {
+  node_type* intern_insert(const key_type& key, const value_type& value, bool overwrite) {
     // lazily initialize tree on first insert.
     if (!root) root = unique_ptr<TreeNode>(new TreeNode(0));
     TreeNode* node = root.get();
-    node_type* value = nullptr;
+    unique_ptr<node_type>* target = nullptr;
 
     if (key.getNetwork().sin4.sin_family == AF_INET) {
       std::bitset<32> addr(be32toh(key.getNetwork().sin4.sin_addr.s_addr));
@@ -500,12 +528,7 @@ public:
           node = node->make_left();
         bits++;
       }
-      // only create node if not yet assigned
-      if (!node->node4) {
-        node->node4 = unique_ptr<node_type>(new node_type());
-        _nodes.push_back(node->node4.get());
-      }
-      value = node->node4.get();
+      target = &node->node4;
     } else {
       uint64_t* addr = (uint64_t*)key.getNetwork().sin6.sin6_addr.s6_addr;
       std::bitset<64> addr_low(be64toh(addr[1]));
@@ -525,40 +548,23 @@ public:
           node = node->make_left();
         bits++;
       }
-      // only create node if not yet assigned
-      if (!node->node6) {
-        node->node6 = unique_ptr<node_type>(new node_type());
-        _nodes.push_back(node->node6.get());
-      }
-      value = node->node6.get();
+      target = &node->node6;
     }
-    // assign key
-    value->first = key;
-    return *value;
-  }
 
-  //<! Creates or updates value
-  void insert_or_assign(const key_type& mask, const value_type& value) {
-    insert(mask).second = value;
-  }
-
-  void insert_or_assign(const string& mask, const value_type& value) {
-    insert(key_type(mask)).second = value;
-  }
-
-  //<! check if given key is present in TreeMap
-  bool has_key(const key_type& key) const {
-    const node_type *ptr = lookup(key);
-    return ptr && ptr->first == key;
-  }
-
-  //<! Returns "best match" for key_type, which might not be value
-  const node_type* lookup(const key_type& value) const {
-    return lookup(value.getNetwork(), value.getBits());
+    // only create node if not yet assigned
+    if (*target) {
+      if (overwrite) {
+        (*target)->value() = value;
+      }
+    } else {
+      (*target).reset(new node_type(key, value));
+      _nodes.push_back(node_ptr((*target).get()));
+    }
+    return (*target).get();
   }
 
   //<! Perform best match lookup for value, using at most max_bits
-  const node_type* lookup(const ComboAddress& value, int max_bits = 128) const {
+  const node_type* intern_lookup(const ComboAddress& value, int max_bits = 128) const {
     if (!root) return nullptr;
 
     TreeNode *node = root.get();
@@ -612,6 +618,70 @@ public:
 
     // this can be nullptr.
     return ret;
+  }
+
+public:
+  NetmaskTree() noexcept {
+  }
+
+  NetmaskTree(const NetmaskTree& rhs) {
+    // it is easier to copy the nodes than tree.
+    // also acts as handy compactor
+    for(auto const& entry: rhs) {
+      insert(entry.key(), entry.value());
+    }
+  }
+
+  NetmaskTree& operator=(const NetmaskTree& rhs) {
+    clear();
+    // see above.
+    for(auto const& entry: rhs) {
+      insert(entry.key(), entry.value());
+    }
+    return *this;
+  }
+
+  const_iterator begin() const { return _nodes.begin(); }
+  const_iterator end() const { return _nodes.end(); }
+
+  iterator begin() { return _nodes.begin(); }
+  iterator end() { return _nodes.end(); }
+
+  node_type* insert(const key_type& mask) {
+    return intern_insert(mask, value_type(), false);
+  }
+
+  node_type* insert(const string& mask) {
+    return intern_insert(key_type(mask), value_type(), false);
+  }
+
+  //<! Creates value, but does not update
+  void insert(const key_type& mask, const value_type& value) {
+    intern_insert(mask, value, false);
+  }
+
+  void insert(const string& mask, const value_type& value) {
+    intern_insert(key_type(mask), value, false);
+  }
+
+  //<! Creates or updates value
+  void insert_or_assign(const key_type& mask, const value_type& value) {
+    intern_insert(mask, value, true);
+  }
+
+  void insert_or_assign(const string& mask, const value_type& value) {
+    intern_insert(key_type(mask), value, true);
+  }
+
+  //<! check if given key is present in TreeMap
+  bool has_key(const key_type& key) const {
+    const node_type *ptr = lookup(key);
+    return ptr && ptr->key() == key;
+  }
+
+  //<! Returns "best match" for key_type, which might not be value
+  const node_type* lookup(const key_type& value) const {
+    return intern_lookup(value.getNetwork(), value.getBits());
   }
 
   //<! Removes key from TreeMap. This does not clean up the tree.
@@ -700,7 +770,7 @@ public:
 
 private:
   unique_ptr<TreeNode> root; //<! Root of our tree
-  std::vector<node_type*> _nodes; //<! Container for actual values
+  std::vector<node_ptr> _nodes; //<! Container for actual values
 };
 
 /** This class represents a group of supplemental Netmask classes. An IP address matchs
@@ -730,7 +800,7 @@ public:
   //! Add this Netmask to the list of possible matches
   void addMask(const Netmask& nm)
   {
-    tree.insert(nm);
+    tree.insert(nm, true);
   }
 
   void clear()
@@ -751,18 +821,22 @@ public:
   string toString() const
   {
     ostringstream str;
-    for(auto iter = tree.begin(); iter != tree.end(); ++iter) {
-      if(iter != tree.begin())
-        str <<", ";
-      str<<(*iter)->first.toString();
+    bool first = true;
+    for (auto const& entry: tree) {
+      if (first) {
+        str << ", ";
+        first = false;
+      }
+      str << entry.key().toString();
     }
     return str.str();
   }
 
   void toStringVector(vector<string>* vec) const
   {
-    for(auto iter = tree.begin(); iter != tree.end(); ++iter)
-      vec->push_back((*iter)->first.toString());
+    for (auto const& entry: tree) {
+      vec->push_back(entry.key().toString());
+    }
   }
 
   void toMasks(const string &ips)
@@ -770,8 +844,8 @@ public:
     vector<string> parts;
     stringtok(parts, ips, ", \t");
 
-    for (vector<string>::const_iterator iter = parts.begin(); iter != parts.end(); ++iter)
-      addMask(*iter);
+    for (auto const& part: parts)
+      addMask(part);
   }
 
 private:

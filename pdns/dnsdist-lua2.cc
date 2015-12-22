@@ -142,8 +142,8 @@ void moreLua()
       boost::format fmt("%-24s %8d %8d %s\n");
       g_outputBuffer = (fmt % "Netmask" % "Seconds" % "Blocks" % "Reason").str();
       for(const auto& e: slow) {
-	if(now < e->second.until)
-	  g_outputBuffer+= (fmt % e->first.toString() % (e->second.until.tv_sec - now.tv_sec) % e->second.blocks % e->second.reason).str();
+	if(now < e.value().until)
+	  g_outputBuffer+= (fmt % e.key().toString() % (e.value().until.tv_sec - now.tv_sec) % e.value().blocks % e.value().reason).str();
       }
     });
 
@@ -165,15 +165,15 @@ void moreLua()
 			   for(const auto& capair : m) {
 			     unsigned int count = 0;
 			     if(auto got = slow.lookup(Netmask(capair.first))) {
-			       if(until < got->second.until) // had a longer policy
+			       if(until < got->value().until) // had a longer policy
 				 continue;
-			       if(now < got->second.until) // don't inherit count on expired entry
-				 count=got->second.blocks;
+			       if(now < got->value().until) // don't inherit count on expired entry
+				 count=got->value().blocks;
 			     }
 			     DynBlock db{msg,until};
 			     db.blocks=count;
                              warnlog("Inserting dynamic block for %s for %d seconds: %s", capair.first.toString(), actualSeconds, msg);
-			     slow.insert(Netmask(capair.first)).second=db;
+			     slow.insert(Netmask(capair.first), db);
 			   }
 			   g_dynblockNMG.setState(slow);
 			 });

@@ -11,9 +11,9 @@ int SortList::getMaxOrder(const Netmask& formask) const
   int order=0;
   
   auto place = d_sortlist.lookup(formask);
-  if(place && place->first == formask) {
-    for(const auto& o : place->second.d_orders) 
-      order = std::max(order, o->second); // aki, shouldn't this be o.second?
+  if(place && place->key() == formask) {
+    for(const auto& o : place->value().d_orders) 
+      order = std::max(order, o.value());
   }
   
   return order;
@@ -26,7 +26,7 @@ void SortList::addEntry(const Netmask& formask, const Netmask& valmask, int orde
     ++order;
   }
   //  cout<<"Adding for netmask "<<formask.toString()<<" the order instruction that "<<valmask.toString()<<" is order "<<order<<endl;
-  d_sortlist.insert(formask).second.d_orders.insert(valmask).second=order;
+  d_sortlist.insert(formask)->value().d_orders.insert_or_assign(valmask, order);
 }
 
 std::unique_ptr<SortListOrderCmp> SortList::getOrderCmp(const ComboAddress& who) const
@@ -36,7 +36,7 @@ std::unique_ptr<SortListOrderCmp> SortList::getOrderCmp(const ComboAddress& who)
   }
   auto fnd = d_sortlist.lookup(who);
   //  cerr<<"Returning sort order for "<<who.toString()<<", have "<<fnd->second.d_orders.size()<<" entries"<<endl;
-  return make_unique<SortListOrderCmp>(fnd->second);
+  return make_unique<SortListOrderCmp>(fnd->value());
 }
 
 bool SortListOrderCmp::operator()(const ComboAddress& a, const ComboAddress& b) const
@@ -45,9 +45,9 @@ bool SortListOrderCmp::operator()(const ComboAddress& a, const ComboAddress& b) 
   int bOrder=aOrder;
 
   if(d_slo.d_orders.match(a))
-    aOrder = d_slo.d_orders.lookup(a)->second;
+    aOrder = d_slo.d_orders.lookup(a)->value();
   if(d_slo.d_orders.match(b))
-    bOrder = d_slo.d_orders.lookup(b)->second;
+    bOrder = d_slo.d_orders.lookup(b)->value();
 
   return aOrder < bOrder;
 }
@@ -76,12 +76,12 @@ bool SortListOrderCmp::operator()(const DNSRecord& ar, const DNSRecord& br) cons
   ComboAddress a=getAddr(ar), b=getAddr(br);
   
   if(d_slo.d_orders.match(a))
-    aOrder = d_slo.d_orders.lookup(a)->second;
+    aOrder = d_slo.d_orders.lookup(a)->value();
   else {
     //    cout<<"Could not find anything for "<<a.toString()<<" in our orders!"<<endl;
   }
   if(d_slo.d_orders.match(b))
-    bOrder = d_slo.d_orders.lookup(b)->second;
+    bOrder = d_slo.d_orders.lookup(b)->value();
   else {
     //    cout<<"Could not find anything for "<<b.toString()<<" in our orders!"<<endl;
   }
