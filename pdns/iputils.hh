@@ -343,6 +343,7 @@ public:
 
   string toString() const
   {
+    if (empty()) return "any";
     return d_network.toString()+"/"+std::to_string((unsigned int)d_bits);
   }
 
@@ -382,10 +383,50 @@ public:
     return d_network.sin4.sin_family==0;
   }
 
-private:
+protected:
   ComboAddress d_network;
   uint32_t d_mask;
   uint8_t d_bits;
+};
+
+class NetmaskBitstring : public Netmask {
+public:
+  NetmaskBitstring() = default;
+  explicit NetmaskBitstring(Netmask const& other);
+  explicit NetmaskBitstring(const ComboAddress& network, uint8_t bits);
+
+  /* bitstring concept methods */
+
+  /** length of bitstring including address-family indicator */
+  size_t length() const {
+    if (empty()) return 0;
+    return 1 + d_bits;
+  }
+
+  /** return truncated Netmask: the truncated length includes the address-family indicator */
+  NetmaskBitstring truncate(size_t bits) const;
+
+  /** returned indexed bit in bitstring (starting with the address-family indicator) */
+  bool operator[](size_t ndx) const;
+};
+
+bool operator==(NetmaskBitstring const& a, NetmaskBitstring const& b);
+bool operator!=(NetmaskBitstring const& a, NetmaskBitstring const& b);
+bool is_prefix(NetmaskBitstring const& prefix, NetmaskBitstring const& str);
+NetmaskBitstring longest_common_prefix(NetmaskBitstring const& a, NetmaskBitstring const& b);
+
+/* identity mapping */
+struct Netmask_radix_tree_traits {
+  typedef NetmaskBitstring bitstring;
+  typedef Netmask value_type;
+
+  bitstring value_to_bitstring(value_type const& val) {
+    return bitstring(val);
+  }
+
+  value_type bitstring_to_value(bitstring const& bs) {
+    return bs;
+  }
 };
 
 /** Per-bit binary tree map implementation with <Netmask,T> pair.

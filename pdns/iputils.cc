@@ -190,4 +190,55 @@ void ComboAddress::truncate(unsigned int bits)
   *place &= (~((1<<bitsleft)-1));
 }
 
+NetmaskBitstring::NetmaskBitstring(Netmask const& other)
+: Netmask(other) {
+  // make sure we have a clean address
+  d_network.truncate(d_bits);
+}
+
+NetmaskBitstring::NetmaskBitstring(const ComboAddress& network, uint8_t bits)
+: Netmask(network, bits) {
+  // make sure we have a clean address
+  d_network.truncate(d_bits);
+}
+
+NetmaskBitstring NetmaskBitstring::truncate(size_t bits) const {
+  if (0 == bits || empty()) return NetmaskBitstring();
+  return NetmaskBitstring(d_network, static_cast<uint8_t>(std::min<size_t>(d_bits, bits - 1)));
+}
+
+bool NetmaskBitstring::operator[](size_t ndx) const {
+  if (0 == ndx) return isIpv6();
+  --ndx;
+  unsigned char const *data = isIpv4()
+    ? reinterpret_cast<unsigned char const*>(&d_network.sin4.sin_addr.s_addr)
+    : reinterpret_cast<unsigned char const*>(&d_network.sin6.sin6_addr.s6_addr);
+  return 0 != (data[ndx / 8] & (0x80u >> (ndx % 8)));
+}
+
+bool operator==(NetmaskBitstring const& a, NetmaskBitstring const& b) {
+  Netmask const& a_base = a;
+  return a_base.operator==(b);
+}
+
+bool operator!=(NetmaskBitstring const& a, NetmaskBitstring const& b) {
+  return !(a == b);
+}
+
+bool is_prefix(NetmaskBitstring const& prefix, NetmaskBitstring const& str) {
+  if (prefix.empty()) return true;
+  if (str.empty()) return false;
+  if (prefix.isIpv4() != str.isIpv4()) return false;
+  return (prefix.getBits() <= str.getBits()) && prefix.match(str.getNetwork());
+}
+
+NetmaskBitstring longest_common_prefix(NetmaskBitstring const& a, NetmaskBitstring const& b) {
+  // TODO: room for performance improvements:
+  size_t const min_len = std::min(a.length(), b.length());
+  for (size_t i = 0; i < min_len; ++i) {
+    if (a[i] != b[i]) return a.truncate(i);
+  }
+  return a.truncate(min_len);
+}
+
 template class NetmaskTree<bool>;
