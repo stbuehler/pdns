@@ -174,6 +174,7 @@ pdns_server_SOURCES = \
 	pdnsexception.hh \
 	mbedtlssigners.cc \
 	qtype.cc qtype.hh \
+	radix_tree.hh \
 	randomhelper.cc \
 	rcpgenerator.cc \
 	receiver.cc \
@@ -278,7 +279,7 @@ pdnsutil_SOURCES = \
 	dynlistener.cc \
 	ednssubnet.cc \
 	gss_context.cc gss_context.hh \
-        iputils.cc iputils.hh \
+	iputils.cc iputils.hh \
 	json.cc \
 	logger.cc \
 	mbedtlscompat.hh \
@@ -288,6 +289,7 @@ pdnsutil_SOURCES = \
 	pdnsutil.cc \
 	mbedtlssigners.cc \
 	qtype.cc \
+	radix_tree.hh \
 	randomhelper.cc \
 	rcpgenerator.cc rcpgenerator.hh \
 	serialtweaker.cc \
@@ -1049,7 +1051,7 @@ testrunner_SOURCES = \
 	dnssecinfra.cc \
 	dnswriter.cc \
 	ednssubnet.cc \
-        gss_context.cc gss_context.hh \
+	gss_context.cc gss_context.hh \
 	iputils.cc \
 	logger.cc \
 	misc.cc \
@@ -1118,7 +1120,7 @@ pdns_recursor_SOURCES = \
 	ednssubnet.cc ednssubnet.hh \
 	filterpo.cc filterpo.hh \
 	gss_context.cc gss_context.hh \
-	iputils.cc \
+	iputils.cc iputils.hh \
 	ixfr.cc ixfr.hh \
 	json.cc json.hh \
 	logger.cc \
@@ -1132,6 +1134,7 @@ pdns_recursor_SOURCES = \
 	pdns_recursor.cc \
 	pubsuffix.cc \
 	qtype.cc \
+	radix_tree.hh \
 	randomhelper.cc \
 	rcpgenerator.cc rcpgenerator.hh \
 	rec-carbon.cc \

@@ -57,6 +57,7 @@ dnsdist_SOURCES = \
 	namespaces.hh \
 	pdnsexception.hh \
 	qtype.cc qtype.hh \
+	radix_tree.hh \
 	sholder.hh \
 	sodcrypto.cc sodcrypto.hh \
 	sstuff.hh \
@@ -99,6 +100,7 @@ testrunner_SOURCES = \
 	namespaces.hh \
 	pdnsexception.hh \
 	qtype.cc qtype.hh \
+	radix_tree.hh \
 	sholder.hh \
 	sodcrypto.cc \
 	sstuff.hh \

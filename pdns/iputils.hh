@@ -32,6 +32,7 @@
 #include <bitset>
 #include "pdnsexception.hh"
 #include "misc.hh"
+#include "radix_tree.hh"
 #include <sys/socket.h>
 #include <netdb.h>
 #include <sstream>
@@ -451,327 +452,64 @@ struct Netmask_radix_tree_traits {
  */
 template <typename T>
 class NetmaskTree {
+private:
+  typedef radix_tree<Netmask, T, Netmask_radix_tree_traits> tree;
+
 public:
+  typedef typename tree::iterator iterator;
+  typedef typename tree::const_iterator const_iterator;
+
   typedef Netmask key_type;
   typedef T value_type;
-
-  class node_type {
-  public:
-    explicit node_type(const key_type& key, const value_type& value)
-    : m_key(key), m_value(value) {
-    }
-
-    const key_type& key() const {
-      return m_key;
-    }
-
-    const value_type& value() const {
-      return m_value;
-    }
-
-    value_type& value() {
-      return m_value;
-    }
-
-  private:
-    key_type m_key;
-    value_type m_value;
-  };
-
-  /* iteration is implemented through a vector of `node_type*`; wrap in node_ptr to emulate reference `node_type&` instead */
-  class node_ptr {
-  public:
-    explicit node_ptr(node_type* node)
-    : m_node(node) {
-    }
-
-    const key_type& key() const {
-      return m_node->key();
-    }
-
-    const value_type& value() const {
-      return m_node->value();
-    }
-
-    value_type& value() {
-      return m_node->value();
-    }
-
-    bool operator==(node_ptr other) const {
-      return m_node == other.m_node;
-    }
-
-    bool operator==(node_type const* node) const {
-      return m_node == node;
-    }
-
-  private:
-    node_type* m_node;
-  };
-
+  typedef std::pair<key_type,value_type> node_type;
   typedef size_t size_type;
 
-  typedef typename std::vector<node_ptr>::const_iterator const_iterator;
-  typedef typename std::vector<node_ptr>::iterator iterator;
-
-private:
-  /** Single node in tree, internal use only.
-    */
-  class TreeNode : boost::noncopyable {
-  public:
-     explicit TreeNode(int bits) noexcept : parent(NULL),d_bits(bits) {
-     }
-
-     //<! Makes a left node with one more bit than parent
-     TreeNode* make_left() {
-       if (!left) {
-         left = unique_ptr<TreeNode>(new TreeNode(d_bits+1));
-         left->parent = this;
-       }
-       return left.get();
-     }
-
-     //<! Makes a right node with one more bit than parent
-     TreeNode* make_right() {
-       if (!right) {
-         right = unique_ptr<TreeNode>(new TreeNode(d_bits+1));
-         right->parent = this;
-       }
-       return right.get();
-     }
-
-     unique_ptr<TreeNode> left;
-     unique_ptr<TreeNode> right;
-     TreeNode* parent;
-
-     unique_ptr<node_type> node4; //<! IPv4 value-pair
-     unique_ptr<node_type> node6; //<! IPv6 value-pair
-
-     int d_bits; //<! How many bits have been used so far
-  };
-
-  //<! Creates new value-pair in tree and returns it.
-  node_type* intern_insert(const key_type& key, const value_type& value, bool overwrite) {
-    // lazily initialize tree on first insert.
-    if (!root) root = unique_ptr<TreeNode>(new TreeNode(0));
-    TreeNode* node = root.get();
-    unique_ptr<node_type>* target = nullptr;
-
-    if (key.getNetwork().sin4.sin_family == AF_INET) {
-      std::bitset<32> addr(be32toh(key.getNetwork().sin4.sin_addr.s_addr));
-      int bits = 0;
-      // we turn left on 0 and right on 1
-      while(bits < key.getBits()) {
-        uint8_t val = addr[31-bits];
-        if (val)
-          node = node->make_right();
-        else
-          node = node->make_left();
-        bits++;
-      }
-      target = &node->node4;
-    } else {
-      uint64_t* addr = (uint64_t*)key.getNetwork().sin6.sin6_addr.s6_addr;
-      std::bitset<64> addr_low(be64toh(addr[1]));
-      std::bitset<64> addr_high(be64toh(addr[0]));
-      int bits = 0;
-      while(bits < key.getBits()) {
-        uint8_t val;
-        // we use high address until we are
-        if (bits < 64) val = addr_high[63-bits];
-        // past 64 bits, and start using low address
-        else val = addr_low[127-bits];
-
-        // we turn left on 0 and right on 1
-        if (val)
-          node = node->make_right();
-        else
-          node = node->make_left();
-        bits++;
-      }
-      target = &node->node6;
-    }
-
-    // only create node if not yet assigned
-    if (*target) {
-      if (overwrite) {
-        (*target)->value() = value;
-      }
-    } else {
-      (*target).reset(new node_type(key, value));
-      _nodes.push_back(node_ptr((*target).get()));
-    }
-    return (*target).get();
-  }
-
-  //<! Perform best match lookup for value, using at most max_bits
-  const node_type* intern_lookup(const ComboAddress& value, int max_bits = 128) const {
-    if (!root) return nullptr;
-
-    TreeNode *node = root.get();
-    node_type *ret = nullptr;
-
-    // exact same thing as above, except
-    if (value.sin4.sin_family == AF_INET) {
-      max_bits = std::max(0,std::min(max_bits,32));
-      std::bitset<32> addr(be32toh(value.sin4.sin_addr.s_addr));
-      int bits = 0;
-
-      while(bits < max_bits) {
-        // ...we keep track of last non-empty node
-        if (node->node4) ret = node->node4.get();
-        uint8_t val = addr[31-bits];
-        // ...and we don't create left/right hand
-        if (val) {
-          if (node->right) node = node->right.get();
-          // ..and we break when road ends
-          else break;
-        } else {
-          if (node->left) node = node->left.get();
-          else break;
-        }
-        bits++;
-      }
-      // needed if we did not find one in loop
-      if (node->node4) ret = node->node4.get();
-    } else {
-      uint64_t* addr = (uint64_t*)value.sin6.sin6_addr.s6_addr;
-      max_bits = std::max(0,std::min(max_bits,128));
-      std::bitset<64> addr_low(be64toh(addr[1]));
-      std::bitset<64> addr_high(be64toh(addr[0]));
-      int bits = 0;
-      while(bits < max_bits) {
-        if (node->node6) ret = node->node6.get();
-        uint8_t val;
-        if (bits < 64) val = addr_high[63-bits];
-        else val = addr_low[127-bits];
-        if (val) {
-          if (node->right) node = node->right.get();
-          else break;
-        } else {
-          if (node->left) node = node->left.get();
-          else break;
-        }
-        bits++;
-      }
-      if (node->node6) ret = node->node6.get();
-    }
-
-    // this can be nullptr.
-    return ret;
-  }
-
 public:
-  NetmaskTree() noexcept {
+  const_iterator begin() const { return m_tree.begin(); }
+  const_iterator end() const { return m_tree.end(); }
+  iterator begin() { return m_tree.begin(); }
+  iterator end() { return m_tree.end(); }
+
+  // Creates entry with default-constructed value if not already present; returns iterator for key
+  iterator insert(const string &mask) {
+    return insert(key_type(mask));
   }
 
-  NetmaskTree(const NetmaskTree& rhs) {
-    // it is easier to copy the nodes than tree.
-    // also acts as handy compactor
-    for(auto const& entry: rhs) {
-      insert(entry.key(), entry.value());
-    }
+  iterator insert(const key_type& key) {
+    return m_tree.insert(key, value_type()).first;
   }
 
-  NetmaskTree& operator=(const NetmaskTree& rhs) {
-    clear();
-    // see above.
-    for(auto const& entry: rhs) {
-      insert(entry.key(), entry.value());
-    }
-    return *this;
+  //<! Creates, but does NOT update, value
+  std::pair<iterator, bool> insert(const key_type& mask, const value_type& value) {
+    return m_tree.insert(mask, value);
   }
 
-  const_iterator begin() const { return _nodes.begin(); }
-  const_iterator end() const { return _nodes.end(); }
-
-  iterator begin() { return _nodes.begin(); }
-  iterator end() { return _nodes.end(); }
-
-  node_type* insert(const key_type& mask) {
-    return intern_insert(mask, value_type(), false);
-  }
-
-  node_type* insert(const string& mask) {
-    return intern_insert(key_type(mask), value_type(), false);
-  }
-
-  //<! Creates value, but does not update
-  void insert(const key_type& mask, const value_type& value) {
-    intern_insert(mask, value, false);
-  }
-
-  void insert(const string& mask, const value_type& value) {
-    intern_insert(key_type(mask), value, false);
+  std::pair<iterator, bool> insert(const string& mask, const value_type& value) {
+    return m_tree.insert(key_type(mask), value);
   }
 
   //<! Creates or updates value
-  void insert_or_assign(const key_type& mask, const value_type& value) {
-    intern_insert(mask, value, true);
+  std::pair<iterator, bool> insert_or_assign(const key_type& mask, const value_type& value) {
+    return m_tree.insert_or_assign(mask, value);
   }
 
-  void insert_or_assign(const string& mask, const value_type& value) {
-    intern_insert(key_type(mask), value, true);
+  std::pair<iterator, bool> insert_or_assign(const string& mask, const value_type& value) {
+    return insert_or_assign(key_type(mask), value);
   }
 
   //<! check if given key is present in TreeMap
   bool has_key(const key_type& key) const {
-    const node_type *ptr = lookup(key);
-    return ptr && ptr->key() == key;
+    return bool(m_tree.find_exact(key));
   }
 
-  //<! Returns "best match" for key_type, which might not be value
-  const node_type* lookup(const key_type& value) const {
-    return intern_lookup(value.getNetwork(), value.getBits());
+  //<! Returns "best match" for key_type, might return end()
+  const_iterator lookup(const key_type& key) const {
+    return m_tree.find(key);
   }
 
-  //<! Removes key from TreeMap. This does not clean up the tree.
+  //<! Removes key from TreeMap.
   void erase(const key_type& key) {
-    TreeNode *node = root.get();
-
-    // no tree, no value
-    if ( node == nullptr ) return;
-
-    // exact same thing as above, except
-    if (key.getNetwork().sin4.sin_family == AF_INET) {
-      std::bitset<32> addr(be32toh(key.getNetwork().sin4.sin_addr.s_addr));
-      int bits = 0;
-      while(node && bits < key.getBits()) {
-        uint8_t val = addr[31-bits];
-        if (val) {
-          node = node->right.get();
-        } else {
-          node = node->left.get();
-        }
-        bits++;
-      }
-      if (node) {
-        for(auto it = _nodes.begin(); it != _nodes.end(); it++)
-           if (node->node4.get() == *it) _nodes.erase(it);
-        node->node4.reset();
-      }
-    } else {
-      uint64_t* addr = (uint64_t*)key.getNetwork().sin6.sin6_addr.s6_addr;
-      std::bitset<64> addr_low(be64toh(addr[1]));
-      std::bitset<64> addr_high(be64toh(addr[0]));
-      int bits = 0;
-      while(node && bits < key.getBits()) {
-        uint8_t val;
-        if (bits < 64) val = addr_high[63-bits];
-        else val = addr_low[127-bits];
-        if (val) {
-          node = node->right.get();
-        } else {
-          node = node->left.get();
-        }
-        bits++;
-      }
-      if (node) {
-        for(auto it = _nodes.begin(); it != _nodes.end(); it++)
-           if (node->node6.get() == *it) _nodes.erase(it);
-        node->node6.reset();
-      }
-    }
+    m_tree.erase(key);
   }
 
   void erase(const string& key) {
@@ -780,17 +518,17 @@ public:
 
   //<! checks whether the container is empty.
   bool empty() const {
-    return _nodes.empty();
+    return m_tree.empty();
   }
 
   //<! returns the number of elements
   size_type size() const {
-    return _nodes.size();
+    return m_tree.size();
   }
 
   //<! See if given ComboAddress matches any prefix
   bool match(const ComboAddress& value) const {
-    return (lookup(value) != nullptr);
+    return bool(lookup(key_type(value)));
   }
 
   bool match(const std::string& value) const {
@@ -799,19 +537,22 @@ public:
 
   //<! Clean out the tree
   void clear() {
-    _nodes.clear();
-    root.reset(nullptr);
+    m_tree.clear();
   }
 
   //<! swaps the contents, rhs is left with nullptr.
   void swap(NetmaskTree& rhs) {
-    root.swap(rhs.root);
-    _nodes.swap(rhs._nodes);
+    using std::swap;
+    swap(m_tree, rhs.m_tree);
+  }
+
+  friend void swap(NetmaskTree& a, NetmaskTree& b) {
+    using std::swap;
+    swap(a.m_tree, b.m_tree);
   }
 
 private:
-  unique_ptr<TreeNode> root; //<! Root of our tree
-  std::vector<node_ptr> _nodes; //<! Container for actual values
+  tree m_tree;
 };
 
 /** This class represents a group of supplemental Netmask classes. An IP address matchs
