@@ -1,0 +1,15 @@
+# not generated from a Makfile.am !
+
+@SET_MAKE@
+
+@BUILD_ALL_TRUE@%:
+@BUILD_ALL_TRUE@	$(MAKE) -f Makefile-all $@
+
+@BUILD_AUTH_TRUE@%:
+@BUILD_AUTH_TRUE@	$(MAKE) -f Makefile-auth $@
+
+@BUILD_RECURSOR_TRUE@%:
+@BUILD_RECURSOR_TRUE@	$(MAKE) -f Makefile-recursor $@
+
+@BUILD_DNSDIST_TRUE@%:
+@BUILD_DNSDIST_TRUE@	$(MAKE) -f Makefile-dnsdist $@

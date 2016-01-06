@@ -1,0 +1,256 @@
+/*
+ *  PowerDNS BIND Zone to LDAP converter
+ *  Copyright (C) 2003  Norbert Sendetzky
+ *  Copyright (C) 2007  bert hubert
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License version 2
+ *  the Free Software Foundation
+ *  
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+#include <map>
+#include <string>
+#include <iostream>
+#include <stdio.h>
+#include "pdns/authrec-common/arguments.hh"
+#include "bindparserclasses.hh"
+#include "pdns/authrec-common/statbag.hh"
+#include <boost/function.hpp>
+#include "pdns/authrec-common/dnsrecords.hh"
+#include "pdns/common/misc.hh"
+#include "pdns/common/dns.hh"
+#include "pdns/authrec-common/zoneparser-tng.hh"
+
+using std::map;
+using std::string;
+using std::vector;
+
+StatBag S;
+ArgvMap args;
+bool g_dnsttl;
+string g_basedn;
+DNSName g_zonename;
+map<DNSName,bool> g_objects;
+
+static void callback_simple( unsigned int domain_id, const DNSName &domain, const string &qtype, const string &content, int ttl )
+{
+        DNSName host;
+
+        if( ! domain.isPartOf(g_zonename) )
+        {
+                cerr << "Domain '" << domain.toString() << "'' not part of '" << g_zonename.toString() << "'"<< endl;
+                return;
+        }
+
+        host = domain.makeRelative(g_zonename);
+
+        cout << "dn: dc=";
+        if( host.countLabels() ) { cout << host.toStringNoDot() << ",dc="; }
+        cout << g_zonename.toStringNoDot() << "," << g_basedn << endl;
+
+        if( host.countLabels() == 0 ) { host = g_zonename; }
+
+        if( !g_objects[domain] )
+        {
+                g_objects[domain] = true;
+
+                cout << "changetype: add" << endl;
+                cout << "objectclass: dnsdomain2" << endl;
+                cout << "objectclass: domainrelatedobject" << endl;
+                cout << "dc: " << host.toStringNoDot() << endl;
+                if( g_dnsttl ) { cout << "dnsttl: " << ttl << endl; }
+                cout << "associateddomain: " << domain.toStringNoDot() << endl;
+        }
+        else
+        {
+                cout << "changetype: modify" << endl;
+                cout << "add: " << qtype << "Record" << endl;
+        }
+
+        cout << qtype << "Record: " << stripDot( content ) << endl << endl;
+}
+
+
+
+static void callback_tree( unsigned int domain_id, const DNSName &domain, const string &qtype, const string &content, int ttl )
+{
+        unsigned int i;
+        string dn;
+        DNSName net;
+        vector<string> parts;
+
+        stringtok( parts, domain.toStringNoDot(), "." );
+        if( parts.empty() ) { return; }
+
+        for( i = parts.size() - 1; i > 0; i-- )
+        {
+                net.prependRawLabel(parts[i]);
+                dn = "dc=" + parts[i] + "," + dn;
+
+                if( !g_objects[net] )
+                {
+                        g_objects[net] = true;
+
+                        cout << "dn: " << dn << g_basedn << endl;
+                        cout << "changetype: add" << endl;
+                        cout << "objectclass: dnsdomain2" << endl;
+                        cout << "objectclass: domainrelatedobject" << endl;
+                        cout << "dc: " << parts[i] << endl;
+                        cout << "associateddomain: " << net.toStringNoDot() << endl << endl;
+                }
+
+        }
+
+        cout << "dn: " << "dc=" << parts[0] << "," << dn << g_basedn << endl;
+
+        if( !g_objects[domain] )
+        {
+                g_objects[domain] = true;
+
+                cout << "changetype: add" << endl;
+                cout << "objectclass: dnsdomain2" << endl;
+                cout << "objectclass: domainrelatedobject" << endl;
+                cout << "dc: " << parts[0] << endl;
+                if( g_dnsttl ) { cout << "dnsttl: " << ttl << endl; }
+                cout << "associateddomain: " << domain.toStringNoDot() << endl;
+        }
+        else
+        {
+                cout << "changetype: modify" << endl;
+                cout << "add: " << qtype << "Record" << endl;
+        }
+
+        cout << qtype << "Record: " << stripDot( content ) << endl << endl;
+}
+
+
+
+int main( int argc, char* argv[] )
+{
+        BindParser BP;
+        vector<string> parts;
+
+
+        try
+        {
+#if __GNUC__ >= 3
+                std::ios_base::sync_with_stdio( false );
+#endif
+                reportAllTypes();
+                args.setCmd( "help", "Provide a helpful message" );
+                args.setSwitch( "verbose", "Verbose comments on operation" ) = "no";
+                args.setSwitch( "resume", "Continue after errors" ) = "no";
+                args.setSwitch( "dnsttl", "Add dnsttl attribute to every entry" ) = "no";
+                args.set( "named-conf", "Bind 8 named.conf to parse" ) = "";
+                args.set( "zone-file", "Zone file to parse" ) = "";
+                args.set( "zone-name", "Specify a zone name if zone is set" ) = "";
+                args.set( "basedn", "Base DN to store objects below" ) = "ou=hosts,o=mycompany,c=de";
+                args.set( "layout", "How to arrange entries in the directory (simple or as tree)" ) = "simple";
+
+                args.parse( argc, argv );
+
+                if( args.mustDo( "help" ) )
+                {
+                        cout << "Syntax:" << endl << endl;
+                        cout << args.helpstring() << endl;
+                        exit( 0 );
+                }
+
+                if( argc < 2 )
+                {
+                        cerr << "Syntax:" << endl << endl;
+                        cerr << args.helpstring() << endl;
+                        exit( 1 );
+                }
+
+                g_basedn = args["basedn"];
+                g_dnsttl = args.mustDo( "dnsttl" );
+                typedef boost::function<void(unsigned int, const DNSName &, const string &, const string &, int)> callback_t;
+                callback_t callback = callback_simple;
+                if( args["layout"] == "tree" )
+                {
+                        callback=callback_tree;
+                }
+
+                if( !args["named-conf"].empty() )
+                {
+                        BP.setVerbose( args.mustDo( "verbose" ) );
+                        BP.parse( args["named-conf"] );
+//                        ZP.setDirectory( BP.getDirectory() );
+                        const vector<BindDomainInfo> &domains = BP.getDomains();
+
+                        for( vector<BindDomainInfo>::const_iterator i = domains.begin(); i != domains.end(); i++ )
+                        {
+                                        if(i->type!="master" && i->type!="slave") {
+                                                cerr<<" Warning! Skipping '"<<i->type<<"' zone '"<<i->name.toString()<<"'"<<endl;
+                                                continue;
+                                        }
+                                try
+                                {
+				  if( i->name != DNSName(".") && i->name != DNSName("localhost") && i->name != DNSName("0.0.127.in-addr.arpa") )
+                                        {
+                                                cerr << "Parsing file: " << i->filename << ", domain: " << i->name.toString() << endl;
+                                                g_zonename = i->name;
+                                                ZoneParserTNG zpt(i->filename, i->name, BP.getDirectory());
+                                                DNSResourceRecord rr;
+                                                while(zpt.get(rr))
+                                                        callback(0, rr.qname, rr.qtype.getName(), rr.content, rr.ttl);
+                                        }
+                                }
+                                catch( PDNSException &ae )
+                                {
+                                        cerr << "Fatal error: " << ae.reason << endl;
+                                        if( !args.mustDo( "resume" ) )
+                                        {
+                                                return 1;
+                                        }
+                                }
+                        }
+                }
+                else
+                {
+                        if( args["zone-file"].empty() || args["zone-name"].empty() )
+                        {
+                                        cerr << "Error: At least zone-file and zone-name are required" << endl;
+                                        return 1;
+                        }
+
+                        g_zonename = DNSName(args["zone-name"]);
+                        ZoneParserTNG zpt(args["zone-file"], g_zonename);
+                        DNSResourceRecord rr;
+                        while(zpt.get(rr))
+                                callback(0, rr.qname, rr.qtype.getName(), rr.content, rr.ttl);
+                }
+        }
+        catch( PDNSException &ae )
+        {
+                cerr << "Fatal error: " << ae.reason << endl;
+                return 1;
+        }
+        catch( std::exception &e )
+        {
+                cerr << "Died because of STL error: " << e.what() << endl;
+                return 1;
+        }
+        catch( ... )
+        {
+                cerr << "Died because of unknown exception" << endl;
+                return 1;
+        }
+
+        return 0;
+}

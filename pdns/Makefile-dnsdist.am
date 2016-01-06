@@ -1,0 +1,4 @@
+include $(srcdir)/Makefile-header.inc
+
+include $(srcdir)/common/Makefile.inc
+include $(srcdir)/dns-dist/Makefile.inc

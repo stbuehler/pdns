@@ -1,0 +1,8 @@
+#!/bin/sh
+
+(echo "const char* g_pubsuffix[]={";
+	for a in $(grep -v "//" | grep \\. | egrep "^[.0-9a-z-]*$" ; echo "co.za" ; echo "co.il" )
+	do 
+		echo \"$a\",
+	done 
+echo "0};")

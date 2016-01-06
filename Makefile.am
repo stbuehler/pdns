@@ -1,8 +1,4 @@
-SUBDIRS = ext modules codedocs docs
-
-if WITH_PDNS_SERVER
-  SUBDIRS += pdns
-endif
+SUBDIRS = ext codedocs docs pdns
 
 EXTRA_DIST = \
 	INSTALL \
@@ -15,7 +11,6 @@ EXTRA_DIST = \
 	contrib/powerdns.solaris.init.d \
 	contrib/systemd-pdns-recursor.service \
 	contrib/systemd-pdns.service \
-	pdns/named.conf.parsertest \
 	regression-tests/zones/unit.test
 
 ACLOCAL_AMFLAGS = -I m4

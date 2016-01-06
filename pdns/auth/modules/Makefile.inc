@@ -1,0 +1,16 @@
+include $(srcdir)/auth/modules/bindbackend/Makefile.inc
+include $(srcdir)/auth/modules/geoipbackend/Makefile.inc
+include $(srcdir)/auth/modules/gmysqlbackend/Makefile.inc
+include $(srcdir)/auth/modules/godbcbackend/Makefile.inc
+include $(srcdir)/auth/modules/goraclebackend/Makefile.inc
+include $(srcdir)/auth/modules/gpgsqlbackend/Makefile.inc
+include $(srcdir)/auth/modules/gsqlite3backend/Makefile.inc
+include $(srcdir)/auth/modules/ldapbackend/Makefile.inc
+include $(srcdir)/auth/modules/luabackend/Makefile.inc
+include $(srcdir)/auth/modules/mydnsbackend/Makefile.inc
+include $(srcdir)/auth/modules/opendbxbackend/Makefile.inc
+include $(srcdir)/auth/modules/oraclebackend/Makefile.inc
+include $(srcdir)/auth/modules/pipebackend/Makefile.inc
+include $(srcdir)/auth/modules/randombackend/Makefile.inc
+include $(srcdir)/auth/modules/remotebackend/Makefile.inc
+include $(srcdir)/auth/modules/tinydnsbackend/Makefile.inc

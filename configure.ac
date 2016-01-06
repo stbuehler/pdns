@@ -2,10 +2,42 @@ AC_PREREQ([2.61])
 
 AC_INIT([pdns], m4_esyscmd_s(build-aux/gen-version))
 
-AC_CONFIG_SRCDIR([pdns/receiver.cc])
+AC_CONFIG_SRCDIR([pdns/common/dns.cc])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_AUX_DIR([build-aux])
+
+avail=
+avail_all=yes
+build_project=
+AS_IF([test -d "${srcdir}/pdns/dns-dist"], [
+    avail_dnsdist=yes
+    avail="${avail}dnsdist,"
+    build_project=dnsdist
+  ],[
+    avail_dnsdist=no
+    avail_all=no
+  ])
+AS_IF([test -d "${srcdir}/pdns/recursor"], [
+    avail_recursor=yes
+    avail="${avail}recursor,"
+    build_project=recursor
+  ],[
+    avail_recursor=no
+    avail_all=no
+  ])
+AS_IF([test -d "${srcdir}/pdns/auth"], [
+    avail_auth=yes
+    avail="${avail}auth,"
+    build_project=auth
+  ],[
+    avail_auth=no
+    avail_all=no
+  ])
+
+AS_IF([test "x${avail_all}" = "xyes"], [
+  build_project=all
+])
 
 AC_SUBST([pdns_configure_args],["$ac_configure_args"])
 AC_DEFINE_UNQUOTED([PDNS_CONFIG_ARGS],
@@ -40,6 +72,47 @@ AC_DEFINE([_GNU_SOURCE], [1],
 
 # Warn when pkg.m4 is missing
 m4_pattern_forbid([^_?PKG_[A-Z_]+$],[*** pkg.m4 missing, please install pkg-config])
+
+# possible projects: auth, recursor, dnsdist. defaults to build all available
+AC_MSG_NOTICE([projects available for build: $avail])
+
+AS_IF([test "x$build_project" = "x"], [
+  AC_MSG_ERROR([no build project available])
+])
+
+AC_MSG_CHECKING([which project(s) to build])
+AC_ARG_WITH([project],
+  [AS_HELP_STRING([--with-project],[which project to compile (or all)])],
+  [build_project="$withval"]
+)
+AS_CASE([$build_project],
+  [auth], [
+    AS_IF([test "$avail_auth" == "no"], [AC_MSG_ERROR([auth is not available])])
+  ],
+  [recursor], [
+    AS_IF([test "$avail_recursor" == "no"], [AC_MSG_ERROR([recursor is not available])])
+  ],
+  [dnsdist], [
+    AS_IF([test "$avail_dnsdist" == "no"], [AC_MSG_ERROR([dnsdist is not available])])
+  ],
+  [all], [
+    AS_IF([test "$avail_all" == "no"], [AC_MSG_ERROR([not all projects are available])])
+  ],
+  [
+    AC_MSG_ERROR([selected project "$build_project" not known])
+  ]
+)
+AC_MSG_RESULT([$build_project])
+
+AM_CONDITIONAL([BUILD_AUTH],[test "$build_project" = "auth"])
+AM_CONDITIONAL([BUILD_WITH_AUTH],[test "$build_project" = "auth" || test "$build_project" = "all"])
+AM_CONDITIONAL([BUILD_RECURSOR],[test "$build_project" = "recursor"])
+AM_CONDITIONAL([BUILD_WITH_RECURSOR],[test "$build_project" = "recursor" || test "$build_project" = "all"])
+AM_CONDITIONAL([BUILD_WITH_AUTH_OR_RECURSOR],[test "$build_project" = "auth" || test "$build_project" = "recursor" || test "$build_project" = "all"])
+AM_CONDITIONAL([BUILD_DNSDIST],[test "$build_project" = "dnsdist"])
+AM_CONDITIONAL([BUILD_WITH_DNSDIST],[test "$build_project" = "dnsdist" || test "$build_project" = "all"])
+AM_CONDITIONAL([BUILD_ALL],[test "$build_project" = "all"])
+
 
 PDNS_WITH_LUAJIT
 AS_IF([test "x$with_luajit" = "xno"], [
@@ -191,42 +264,11 @@ AS_IF([test "x$static" != "xno"], [
   LDFLAGS="-all-static $LDFLAGS"
 ])
 
-modules="bind gmysql random"
-AC_ARG_WITH([modules],
-  [AS_HELP_STRING([--with-modules],[which backends to compile with @<:@default=bind gmysql random@:>@])],
-  [modules="$withval"]
-)
-
-dynmodules="pipe"
-AC_ARG_WITH([dynmodules],
-  [AS_HELP_STRING([--with-dynmodules],[which backends to build for dynamic loading @<:@default=pipe@:>@])],
-  [dynmodules="$withval"]
-)
-
 AC_SUBST(socketdir)
 socketdir="/var/run"
 AC_ARG_WITH([socketdir],
   [AS_HELP_STRING([--with-socketdir],[where the controlsocket lives @<:@default=/var/run@:>@])],
   [socketdir="$withval"]
-)
-
-AC_SUBST(moduledirs)
-AC_SUBST(moduleobjects)
-AC_SUBST(modulelibs)
-AC_DEFINE_UNQUOTED([PDNS_MODULES],"$modules", [Built-in modules])
-
-AC_MSG_CHECKING([whether we will be building the server])
-AC_ARG_ENABLE([pdns-server],
-  [AS_HELP_STRING([--enable-pdns_server],[if we should build the server @<:@default=yes@:>@])],
-  [enable_pdns_server=$enableval],
-  [enable_pdns_server=yes]
-)
-AC_MSG_RESULT([$enable_pdns_server])
-AM_CONDITIONAL([WITH_PDNS_SERVER],[test "x$enable_pdns_server" != "xno"])
-
-AC_ARG_ENABLE([gcc-skip-locking],
-  [AS_HELP_STRING([--enable-gcc-skip-locking],[if we should forcefully skip gcc locking @<:@default=no@:>@])],
-  [AC_DEFINE(GCC_SKIP_LOCKING,[],[Skip gcc locking])],
 )
 
 AC_MSG_CHECKING([whether we will be building and installing the extra tools])
@@ -235,81 +277,132 @@ AC_ARG_ENABLE([tools],
   [enable_tools=$enableval],
   [enable_tools=no]
 )
-
 AC_MSG_RESULT([$enable_tools])
 AM_CONDITIONAL([TOOLS],[test "x$enable_tools" != "xno"])
 
+m4_define([auth_avail_modules], [
+  bind
+  geoip
+  gmysql
+  godbc
+  goracle
+  gpgsql
+  gsqlite3
+  ldap
+  lua
+  mydns
+  opendbx
+  oracle
+  pipe
+  random
+  remote
+  tinydns
+])
+m4_foreach_w([mod], auth_avail_modules, [
+  AS_VAR_SET(m4_join([], [build_auth_module_], mod), [no])dnl
+])
 
-for a in $modules $dynmodules; do
-  case "$a" in
-    oracle|goracle)
-      PDNS_WITH_ORACLE
-      needoracle=yes
-      ;;
-    godbc)
-      PDNS_WITH_UNIXODBC
-      ;;
-    mydns|gmysql|pdns)
-      PDNS_WITH_MYSQL
-      ;;
-    gpgsql)
-      PDNS_WITH_POSTGRESQL
-      ;;
-    gsqlite3)
-      needsqlite3=yes
-      ;;
-    ldap)
-      PDNS_CHECK_LDAP
-      needldap=yes
-      ;;
-    opendbx)
-      PDNS_CHECK_OPENDBX
-      ;;
-    remote)
-      AS_IF([test "x$enable_unit_tests" = "xyes"],
-        [PDNS_CHECK_CURL_PROGRAM]
-      )
+AM_COND_IF([BUILD_WITH_AUTH], [
+  modules="bind gmysql random"
+  AC_ARG_WITH([modules],
+    [AS_HELP_STRING([--with-modules],[which backends to compile with @<:@default=bind gmysql random@:>@])],
+    [modules="$withval"]
+  )
 
-      have_remotebackend=yes
-      ;;
-    tinydns)
-      PDNS_CHECK_CDB
-      ;;
-    geoip)
-      PDNS_CHECK_GEOIP
-      ;;
-    lua)
-      AS_IF([test "x$with_lua" = "xno"],
-        AC_MSG_ERROR([Lua backend needs lua, run ./configure --with-lua])
-      )
-      AS_IF([test "x$LUAPC" = "x"],
-        AC_MSG_ERROR([Lua backend needs lua but we cannot find it])
-      )
-      ;;
-  esac
-done
+  dynmodules="pipe"
+  AC_ARG_WITH([dynmodules],
+    [AS_HELP_STRING([--with-dynmodules],[which backends to build for dynamic loading @<:@default=pipe@:>@])],
+    [dynmodules="$withval"]
+  )
 
-PDNS_ENABLE_REMOTEBACKEND_ZEROMQ
+  AC_DEFINE_UNQUOTED([PDNS_MODULES],"$modules", [Built-in modules])
 
-AM_CONDITIONAL([ORACLE],[test "x$needoracle" = "xyes"])
+  AC_ARG_ENABLE([gcc-skip-locking],
+    [AS_HELP_STRING([--enable-gcc-skip-locking],[if we should forcefully skip gcc locking @<:@default=no@:>@])],
+    [AC_DEFINE(GCC_SKIP_LOCKING,[],[Skip gcc locking])],
+  )
 
-AM_CONDITIONAL([LDAP],[test "x$needldap" = "xyes"])
-
-PDNS_CHECK_SQLITE3
-AM_CONDITIONAL([SQLITE3], [test "x$needsqlite3" = "xyes"])
-
-for a in $modules; do
-  moduledirs="$moduledirs ${a}backend"
-
-  for b in `cat $srcdir/modules/${a}backend/OBJECTFILES`; do
-    moduleobjects="$moduleobjects ../modules/${a}backend/$b"
+  for a in $modules $dynmodules; do
+    AS_IF([test ! -d "$srcdir/pdns/auth/modules/${a}backend/"], [
+      AC_MSG_ERROR([Unknown module $a])
+    ])
   done
-  modulelibs="$modulelibs `cat $srcdir/modules/${a}backend/OBJECTLIBS`"
-done
+  for a in $dynmodules; do
+    AS_VAR_SET(m4_join([], [build_auth_module_], [$a]), [dynamic])
+  done
+  for a in $modules; do
+    AS_VAR_SET(m4_join([], [build_auth_module_], [$a]), [static])
+  done
 
-for a in $dynmodules; do
-  moduledirs="$moduledirs ${a}backend"
-done
+  for a in $modules $dynmodules; do
+    case "$a" in
+      oracle|goracle)
+        PDNS_WITH_ORACLE
+        needoracle=yes
+        ;;
+      godbc)
+        PDNS_WITH_UNIXODBC
+        ;;
+      mydns|gmysql)
+        PDNS_WITH_MYSQL
+        ;;
+      gpgsql)
+        PDNS_WITH_POSTGRESQL
+        ;;
+      gsqlite3)
+        needsqlite3=yes
+        ;;
+      ldap)
+        PDNS_CHECK_LDAP
+        needldap=yes
+        ;;
+      opendbx)
+        PDNS_CHECK_OPENDBX
+        ;;
+      remote)
+        AS_IF([test "x$enable_unit_tests" = "xyes"],
+          [PDNS_CHECK_CURL_PROGRAM]
+        )
+
+        have_remotebackend=yes
+        ;;
+      tinydns)
+        PDNS_CHECK_CDB
+        ;;
+      geoip)
+        PDNS_CHECK_GEOIP
+        ;;
+      lua)
+        AS_IF([test "x$with_lua" = "xno"],
+          AC_MSG_ERROR([Lua backend needs lua, run ./configure --with-lua])
+        )
+        AS_IF([test "x$LUAPC" = "x"],
+          AC_MSG_ERROR([Lua backend needs lua but we cannot find it])
+        )
+        ;;
+    esac
+  done
+
+  PDNS_ENABLE_REMOTEBACKEND_ZEROMQ
+
+  AM_CONDITIONAL([ORACLE],[test "x$needoracle" = "xyes"])
+
+  AM_CONDITIONAL([LDAP],[test "x$needldap" = "xyes"])
+
+  PDNS_CHECK_SQLITE3
+  AM_CONDITIONAL([SQLITE3], [test "x$needsqlite3" = "xyes"])
+], [
+  AM_CONDITIONAL([REMOTEBACKEND_ZEROMQ], [false])
+  AM_CONDITIONAL([ORACLE], [false])
+  AM_CONDITIONAL([LDAP], [false])
+  AM_CONDITIONAL([SQLITE3], [false])
+])
+
+m4_foreach_w([mod], auth_avail_modules, [
+  AM_CONDITIONAL(m4_join([], [BUILD_AUTH_MODULE_], m4_toupper(mod), [_DYNAMIC]), m4_join([], [test "x$build_auth_module_], mod, [" = "xdynamic"]))
+  AM_CONDITIONAL(m4_join([], [BUILD_AUTH_MODULE_], m4_toupper(mod), [_STATIC]), m4_join([], [test "x$build_auth_module_], mod, [" = "xstatic"]))
+  AM_CONDITIONAL(m4_join([], [BUILD_AUTH_MODULE_], m4_toupper(mod)), m4_join([], [test "x$build_auth_module_], mod, [" != "xno"]))
+])
 
 LDFLAGS="$RELRO_LDFLAGS $LDFLAGS"
 
@@ -342,13 +435,33 @@ AS_IF([test "x$PACKAGEVERSION" != "x"],
 
 export moduledirs moduleobjects modulelibs
 
+cond_config_files=
+AM_COND_IF([BUILD_ALL], [
+  AC_CONFIG_FILES([
+    pdns/Makefile-all
+  ])
+])
+AM_COND_IF([BUILD_WITH_AUTH], [
+  cond_config_files="${cond_config_files} pdns/auth/pdns.init"
+  AC_CONFIG_FILES([
+    pdns/Makefile-auth
+  ])
+])
+AM_COND_IF([BUILD_WITH_RECURSOR], [
+  AC_CONFIG_FILES([
+    pdns/Makefile-recursor
+  ])
+])
+AM_COND_IF([BUILD_WITH_DNSDIST], [
+  AC_CONFIG_FILES([
+    pdns/Makefile-dnsdist
+  ])
+])
+
 AC_CONFIG_FILES([
   Makefile
-  modules/Makefile
-  pdns/Makefile
   codedocs/Makefile
   docs/Makefile
-  pdns/pdns.init
   ext/Makefile
   ext/yahttp/Makefile
   ext/yahttp/yahttp/Makefile
@@ -356,23 +469,10 @@ AC_CONFIG_FILES([
   ext/mbedtls/library/Makefile
   ext/rapidjson/Makefile
   ext/json11/Makefile
-  modules/bindbackend/Makefile
-  modules/geoipbackend/Makefile
-  modules/gmysqlbackend/Makefile
-  modules/godbcbackend/Makefile
-  modules/goraclebackend/Makefile
-  modules/gpgsqlbackend/Makefile
-  modules/gsqlite3backend/Makefile
-  modules/ldapbackend/Makefile
-  modules/luabackend/Makefile
-  modules/mydnsbackend/Makefile
-  modules/opendbxbackend/Makefile
-  modules/oraclebackend/Makefile
-  modules/pipebackend/Makefile
-  modules/randombackend/Makefile
-  modules/remotebackend/Makefile
-  modules/tinydnsbackend/Makefile
+  pdns/Makefile
+  ${cond_config_files}
 ])
+
 AC_OUTPUT
 
 AC_MSG_NOTICE([])

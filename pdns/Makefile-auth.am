@@ -1,0 +1,6 @@
+include $(srcdir)/Makefile-header.inc
+
+include $(srcdir)/common/Makefile.inc
+include $(srcdir)/authrec-common/Makefile.inc
+include $(srcdir)/auth/Makefile.inc
+include $(srcdir)/tools/Makefile.inc
