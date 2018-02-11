@@ -232,34 +232,6 @@ int32_t MemRecursorCache::get(time_t now, const DNSName &qname, const QType& qt,
   return -1;
 }
 
-bool MemRecursorCache::attemptToRefreshNSTTL(const QType& qt, const vector<DNSRecord>& content, const CacheEntry& stored)
-{
-  if(!stored.d_auth) {
-    //~ cerr<<"feel free to scribble non-auth data!"<<endl;
-    return false;
-  }
-
-  if(qt.getCode()!=QType::NS) {
-    //~ cerr<<"Not NS record"<<endl;
-    return false;
-  }
-  if(content.size()!=stored.d_records.size()) {
-    //~ cerr<<"Not equal number of records"<<endl;
-    return false;
-  }
-  if(stored.d_records.empty())
-    return false;
-
-  if(stored.d_ttd > content.begin()->d_ttl) {
-    //~ cerr<<"attempt to LOWER TTL - fine by us"<<endl;
-    return false;
-  }
-
-
-//  cerr<<"Returning true - update attempt!\n";
-  return true;
-}
-
 void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt, const vector<DNSRecord>& content, const vector<shared_ptr<RRSIGRecordContent>>& signatures, const std::vector<std::shared_ptr<DNSRecord>>& authorityRecs, bool auth, boost::optional<Netmask> ednsmask, vState state)
 {
   d_cachecachevalid = false;
@@ -305,9 +277,6 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
       //      cerr<<"\tStill hold valid auth data, and the new data is unauth, return\n";
       return;
     }
-    else {
-      ce.d_auth = false;  // new data won't be auth
-    }
   }
   ce.d_records.clear();
 
@@ -317,14 +286,7 @@ void MemRecursorCache::replace(time_t now, const DNSName &qname, const QType& qt
     maxTTD = ce.d_ttd;
   }
 
-  // make sure that we CAN refresh the root
-  if(auth && (qname.isRoot() || !attemptToRefreshNSTTL(qt, content, ce) ) ) {
-    // cerr<<"\tGot auth data, and it was not refresh attempt of an unchanged NS set, nuking storage"<<endl;
-    ce.d_records.clear(); // clear non-auth data
-    ce.d_auth = true;
-  }
-  //else cerr<<"\tNot nuking"<<endl;
-
+  ce.d_auth = auth;
 
   for(const auto i : content) {
     /* Yes, we have altered the d_ttl value by adding time(nullptr) to it

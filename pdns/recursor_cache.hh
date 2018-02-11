@@ -178,7 +178,6 @@ private:
   DNSName d_cachedqname;
   bool d_cachecachevalid;
 
-  bool attemptToRefreshNSTTL(const QType& qt, const vector<DNSRecord>& content, const CacheEntry& stored);
   bool entryMatches(cache_t::const_iterator& entry, uint16_t qt, bool requireAuth, const ComboAddress& who);
   std::pair<cache_t::const_iterator, cache_t::const_iterator> getEntries(const DNSName &qname, const QType& qt);
   cache_t::const_iterator getEntryUsingECSIndex(time_t now, const DNSName &qname, uint16_t qtype, bool requireAuth, const ComboAddress& who);
